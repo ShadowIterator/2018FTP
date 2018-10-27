@@ -1,0 +1,6 @@
+cmake-build-debug/
+ftp_root/
+CMakeFiles/
+.idea/
+CMakeLists.txt
+**/server
