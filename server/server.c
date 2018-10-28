@@ -4,7 +4,7 @@
 #include "server.h"
 
 #define BUFFSIZE (8192)
-
+#define DIRSIZE (1024)
 
 
 //TODO: cmd_stats diff from clients!
@@ -34,7 +34,11 @@ void _init_cmd_list()
     register_cmd("LIST", LIST, list_handler);
     register_cmd("SYST", SYST, syst_handler);
     register_cmd("TYPE", TYPE, type_handler);
-
+    register_cmd("PORT", PORT, port_handler);
+    register_cmd("PASV", PASV, pasv_handler);
+    register_cmd("RETR", RETR, retr_handler);
+    register_cmd("CWD", CWD, cwd_handler);
+    register_cmd("PWD", PWD, pwd_handler);
 //    set_cmd_status(USER, CMD_ENABLE);
 //    set_cmd_status(LIST, CMD_ENABLE);
 //    set_cmd_status(SYST, CMD_ENABLE);
@@ -77,27 +81,27 @@ int seek_handler(ConnectArg* args, char* cmd)
     int hid = 0;
     for(; hid < CMD_N; ++hid)
     {
-        if(sistrcmp(cmd, cmd_list[hid].CMD, 0, 0, p) == 0)
+        if(cmd_list[hid].CMD && sistrcmp(cmd, cmd_list[hid].CMD, 0, 0, MAX(strlen(cmd_list[hid].CMD), p)) == 0)
             return ((args->cmdflag >> hid) & 1)? hid : -1;
     }
     return -1;
 }
 
-int readMsg(ConnectArg* args, char* buffer)
+int readMsg(int* fd, ConnectArg* args, char* buffer)
 {
 //    char* buffer = args->buffer;
-    int connfd = args->connfd;
+//    int connfd = args->connfd;
     int len = 0;
     int p;
         //榨干socket传来的内容
     p = 0;
     while (1) {
-        int n = read(connfd, buffer + p, 8191 - p);
+        int n = read(*fd, buffer + p, 8191 - p);
         if (n < 0) {
-            printf("connection-%d : Error read(): %s(%d)\n", args->connfd, strerror(errno), errno);
-//            close(connfd);
-//            clear_connect_arg(args);
-            args->closed = 1;
+            printf("connection-%d : Error read(): %s(%d)\n", *fd, strerror(errno), errno);
+            *fd = *fd > 0 ? -(*fd) : *fd;
+            close(-(*fd));
+            *fd = -1;
             return -1;
         } else if (n == 0) {
             break;
@@ -111,9 +115,9 @@ int readMsg(ConnectArg* args, char* buffer)
     //连接断开
     if (!p) {
         printf("%d client quit\n", args->connfd);
-//        clear_connect_arg(args);
-//        close(connfd);
-        args->closed = 1;
+        *fd = *fd > 0 ? -(*fd) : *fd;
+        close(-(*fd));
+        *fd = -1;
         return -1;
     }
     //socket接收到的字符串并不会添加'\0'
@@ -121,30 +125,34 @@ int readMsg(ConnectArg* args, char* buffer)
     len = p - 1;
 
     // print debug info
-    printf("%d recv%8x %s\n",args->connfd , len, buffer);
+    printf("%d recv%8x %s\n",*fd , len, buffer);
 
 //  handle exit _temp.
     if(len == 1 && buffer[0] == 'Q')
     {
 //        write(connfd, "squit", 5);
-        sendMsg(args, "squit", 5);
+        sendMsg(fd, args, "squit", 5);
     }
     return len;
 }
 
-int sendMsg(ConnectArg* args, char* buffer, int len)
+int sendMsg(int* fd, ConnectArg* args, char* buffer, int len)
 {
 //    char* wbuf[BUFFSIZE];
     if(!len)
         len = strlen(buffer);
-    int connfd = args->connfd;
+//    int connfd = args->connfd;
     int p = 0;
     while (p < len)
     {
-        int n = write(connfd, buffer + p, len + 1 - p);
+        int n = write(*fd, buffer + p, len + 1 - p);
         if (n < 0)
         {
-            args->closed = 1;
+//            args->closed = 1;
+//            *fd = *fd > 0 ? -(*fd) : *fd;
+            *fd = *fd > 0 ? -(*fd) : *fd;
+            close(-(*fd));
+            *fd = -1;
             printf("Error write(): %s(%d)\n", strerror(errno), errno);
             return -1;
         }
@@ -153,21 +161,21 @@ int sendMsg(ConnectArg* args, char* buffer, int len)
             p += n;
         }
     }
-    printf("%d send%8x ", args->connfd, len);
+    printf("%d send%8x ", *fd, len);
     for(int i = 0; i < len; ++i)
         putchar(buffer[i]);
     putchar('\n');
     return 0;
 }
 
-int sendFmtMsg(ConnectArg* args, char* buffer, int len, int code)
+int sendFmtMsg(int* fd, ConnectArg* args, char* buffer, int len, int code)
 {
     char wbuf[BUFFSIZE + 10];
     char fmt[20];
     if(len <= 0) len = strlen(buffer);
     sprintf(fmt, "%%d %%.%ds", len);
     sprintf(wbuf, fmt, code, buffer);
-    return sendMsg(args, wbuf, strlen(wbuf));
+    return sendMsg(fd, args, wbuf, strlen(wbuf));
 }
 
 int processMsg(ConnectArg* args, char* cmd, int len)
@@ -175,38 +183,65 @@ int processMsg(ConnectArg* args, char* cmd, int len)
     int hid = seek_handler(args, cmd);
     if(hid < 0)
     {
-        sendMsg(args, "invalid command", 0);
+        sendMsg(&args->connfd, args, "invalid command", 0);
         return -1;
     }
-    (*(cmd_list[hid].hdr))(args, cmd);
+    (*(cmd_list[hid].hdr))(args, cmd, len);
 //    strcpy(args->writebuffer, args->readbuffer);
 //    sendMsg(args, args->writebuffer, len);
 }
 
 int aserver(ConnectArg* args)
 {
+    args->datafd = -1;
+    args->psvlistenfd = -1;
     args->readbuffer = malloc(BUFFSIZE * sizeof(char));
     args->writebuffer = malloc(BUFFSIZE * sizeof(char));
-    args->dir = NULL;
+    args->dir = malloc(DIRSIZE * sizeof(char));
+    strcpy(args->dir, "");
     set_cmd_status(args, USER, CMD_ENABLE);
+    //------------------------------------
+    set_cmd_status(args, PASV, CMD_ENABLE);
+    set_cmd_status(args, PORT, CMD_ENABLE);
+    set_cmd_status(args, RETR, CMD_ENABLE);
+    set_cmd_status(args, CWD, CMD_ENABLE);
+    set_cmd_status(args, PWD, CMD_ENABLE);
+    //------------------------------------
     int len;
     while(1)
     {
 
-        if(args->closed)
+        if(args->connfd < 0)
             break;
-        len = readMsg(args, args->readbuffer);
+        if(args->datafd != -1 && args->datafd < 0)
+        {
+            printf("close data: %d\n", args->datafd);
+//            close(-args->datafd);
+            args->datafd = -1;
+        }
+        len = readMsg(&args->connfd, args, args->readbuffer);
         if(len > 0)
             processMsg(args, args->readbuffer, len);
 //        sendMsg(args, args->buffer, len);
     }
-    close(args->connfd);
+//    close(-args->connfd);
+    puts("close connfd");
     clear_connect_arg(args);
     return 0;
 }
 
 
 int main(int argc, char **argv) {
+
+    //----------test reduce path--------------------
+//    char* tpath = "/hello/xie/die/../d";
+//    char tpath[1000];
+//    strcpy(tpath, "/hello/../xie/..die/../../../d");
+//    int reduceRes = reducePath(tpath, strlen(tpath));
+//    printf("%d : %s\n", reduceRes, tpath);
+
+    //-----------test done------------
+
     int listenfd, connfd;		//监听socket和连接socket不一样，后者用于数据传输
     struct sockaddr_in addr;
 
@@ -248,7 +283,7 @@ int main(int argc, char **argv) {
         ConnectArg* parg = malloc(sizeof(ConnectArg));
         parg->connfd = connfd;
         int tret = pthread_create(&(parg->tid), NULL, (void*)aserver, (void*)parg);
-        sendFmtMsg(parg, "Anonymous FTP server ready.", 0, 200);
+        sendFmtMsg(&parg->connfd, parg, "Anonymous FTP server ready.", 0, 200);
         if(tret)
         {
             write(connfd, "create thread failed\n", 21);
@@ -262,22 +297,3 @@ int main(int argc, char **argv) {
     close(listenfd);
 }
 
-
-//import socket
-//
-//size = 8192
-//
-//try:
-//#  msg = raw_input()
-//        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-//sock.connect(('localhost',6789))
-//#  sock.sendto(msg, ('localhost', 9876))
-//#  print sock.recv(size)
-//for i in range(20, 21):
-//print "send i"
-//sock.send(str(i)+'\n')
-//print sock.recv(size)
-//sock.close()
-//
-//except:
-//        print "cannot reach the server"

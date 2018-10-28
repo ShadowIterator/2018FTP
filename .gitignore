@@ -4,3 +4,4 @@ CMakeFiles/
 .idea/
 CMakeLists.txt
 **/server
+TEST/

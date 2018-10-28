@@ -6,6 +6,7 @@
 #define SERVER_SERVER_H
 #include <pthread.h>
 
+#define SERVERDIR ("/home/shadowiterator/2018FTP/For_Student/ftp_dev/ftp_root")
 #define CMD_ENABLE 1
 #define CMD_DISABLE 0
 #define CMD_N (16)
@@ -22,13 +23,15 @@ typedef struct
     char* readbuffer;
     char* writebuffer;
     int connfd;
+    int datafd;
     char* dir;
     int closed;
     int cmdflag;
+    int psvlistenfd;
 
 }ConnectArg;
 
-typedef int (*cmd_handler)(ConnectArg*, char*);
+typedef int (*cmd_handler)(ConnectArg*, char*, int);
 
 typedef struct
 {
@@ -42,7 +45,7 @@ void set_cmd_status(ConnectArg*, int, int);
 void set_cmd_status_all(ConnectArg*, int);
 //int enable_cmd(int);
 int register_cmd(char* cmd, int id, cmd_handler hdr);
-int readMsg(ConnectArg* args, char* buffer);
-int sendMsg(ConnectArg* args, char* buffer, int len);
-int sendFmtMsg(ConnectArg* args, char* buffer, int len, int code);
+int readMsg(int* fd,ConnectArg* args, char* buffer);
+int sendMsg(int* fd, ConnectArg* args, char* buffer, int len);
+int sendFmtMsg(int* fd, ConnectArg* args, char* buffer, int len, int code);
 #endif //SERVER_SERVER_H

@@ -1,62 +1,157 @@
 import socket
 import threading
+import time
 
 size = 8192
 fexit = False
 
 class RecvThread(threading.Thread):
-    def __init__(self, threadID, name, sock):
+    def __init__(self, threadID, name, dic):
         threading.Thread.__init__(self)
         self.threadID = threadID
         self.name = name
-        self.sock = sock
+        self.dic = dic
 
     def run(self):
         global fexit
         while(True):
-            data = self.sock.recv(size)
+            data = self.dic['sock'].recv(size)
             data = data.decode()
-            # print(type(data), data)
-            # print(data == 'squit')
+
             if(len(data) > 0):
                 print(self.name + " : " + data)
+            paramL = data.split(' ')
+            if(paramL[0] == '227'):
+                print(paramL)
+                dataL = paramL[1].split('=')
+                print(dataL)
+                dataL = dataL[1].split(',')
+                print(dataL)
 
-            if(data == 'squit'):
-                print("quit!")
-                # fexit = True
-                return
+                port = int(dataL[4]) * 256 + int(dataL[5][:-1])
+                ip = dataL[0] + '.' + dataL[1] + '.' + dataL[2] + '.' + dataL[3]
+                if (self.dic['datasock'] != None):
+                    print("close datasock")
+                    self.dic['datasock'].close()
+                    # time.sleep(3)
+                if (self.dic['listensock'] != None):
+                    print("close listensock")
+                    self.dic['listensock'].close()
+                try:
+                    print(ip, port)
+                    datasock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    datasock.connect((ip, port))
+                    self.dic['datasock'] = datasock
+                except:
+                    print('unable to connect server')
 
-class SendThread(threading.Thread):
-    def __init__(self, threadID, name, sock):
+class DataThread(threading.Thread):
+    def __init__(self, threadID, name, dic):
         threading.Thread.__init__(self)
         self.threadID = threadID
         self.name = name
-        self.sock = sock
+        self.dic = dic
+
+    def run(self):
+        while(True):
+            try:
+                data = self.dic['datasock'].recv(size)
+                data = data.decode()
+                if(len(data) > 0):
+                    print(self.name + " : " + data)
+            except:
+                pass
+
+class SendThread(threading.Thread):
+    def __init__(self, threadID, name, dic):
+        threading.Thread.__init__(self)
+        self.threadID = threadID
+        self.name = name
+        self.dic = dic
 
     def run(self):
         global fexit
         while (True):
             msg = input()
-            # print(msg)
-            if (msg == 'exit'):
-                self.sock.send('Q\n'.encode())
-                print('exit!')
-                return
-                # return
             print(self.name + " : " + msg)
-            self.sock.send((msg + '\n').encode())
+            paramL = msg.split(' ')
+            if(paramL[0] == 'PORT'):
+                try:
+                    # tdata = DataThread(2, 'data', dic)
+                    # tdata.start()
+                    dataL = paramL[1].split(',')
+                    ip = dataL[0] + '.' + dataL[1] + '.' + dataL[2] + '.' + dataL[3]
+                    port = int(dataL[4]) * 256 + int(dataL[5])
+                    print(ip, port)
+                    if(self.dic['datasock'] != None):
+                        print("close datasock")
+                        self.dic['datasock'].close()
+                        # time.sleep(3)
+                    if(self.dic['listensock'] != None):
+                        print("close dataConn")
+                        self.dic['listensock'].close()
+
+                    # if(port == 5655):
+                    #     port = port - 1
+                    self.dic['listensock'] = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    self.dic['listensock'].bind((ip, port))
+                    print("bind done")
+                    self.dic['listensock'].listen(1)
+                    self.dic['sock'].send((msg + '\n').encode())
+                    print("send done")
+                    # self.dic['datasock'].settimeout(5)
+                    connection, address = self.dic['listensock'].accept()
+                    # connection.settimeout(5)
+                    print("accpted")
+                    self.dic['datasock'] = connection
+                    continue
+                except:
+                    print("cannot establish connect")
+                    continue
+            elif(paramL[0] == 'LIST'):
+                try:
+                    self.dic['sock'].send((msg + '\n').encode())
+                    # if(self.dic['datasock'] == None):
+                    #     continue
+                    # while(True):
+                    #     listData = self.dic['datasock'].recv(size)
+                    #     print(len(listData))
+                    #     if not listData:
+                    #         break
+                    #     print('datarecv : ' + listData.decode())
+                except:
+                    # print("cannot establish connect")
+                    continue
+            elif(paramL[0] == 'PASV'):
+                if (self.dic['datasock'] != None):
+                    print("close datasock")
+                    self.dic['datasock'].close()
+                    # time.sleep(3)
+                if (self.dic['listensock'] != None):
+                    print("close dataConn")
+                    self.dic['listensock'].close()
+                self.dic['sock'].send((msg + '\n').encode())
+            else:
+                self.dic['sock'].send((msg + '\n').encode())
 
 
 try:
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.connect(('localhost', 6789))
-    trecv = RecvThread(0, 'recv', sock)
-    tsend = SendThread(1, 'send', sock)
+    sock.connect(('127.0.0.1', 6789))
+    dic = {}
+    dic['sock'] = sock
+    dic['datasock'] = None
+    dic['listensock'] = None
+    trecv = RecvThread(0, 'recv', dic)
+    tsend = SendThread(1, 'send', dic)
+    tdata = DataThread(2, 'data', dic)
     tsend.start()
     trecv.start()
+    tdata.start()
 
     tsend.join()
     trecv.join()
+    tdata.join()
     # while(True):
     #     # data = sock.recv(size)
     #     # while(len(data) > 0):
