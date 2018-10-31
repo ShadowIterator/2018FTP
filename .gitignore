@@ -5,3 +5,5 @@ CMakeFiles/
 CMakeLists.txt
 **/server
 TEST/
+*.data
+autograde.py

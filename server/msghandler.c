@@ -12,7 +12,7 @@
 int countParam(char* cmd)
 {
 //    int p = 0;
-    int rtn = 0;
+//    int rtn = 0;
     int p = 0;
 //    for(int p = 0;; ++p, ++rtn)
 //    {
@@ -28,6 +28,10 @@ int countParam(char* cmd)
 //    }
 }
 
+int file_exists(char* path)
+{
+    return access(path, F_OK) == 0;
+}
 
 int getIP(char* cmd, int len, unsigned int* ip)
 {
@@ -92,6 +96,23 @@ void decodePathName(char *pathname, int n)
             pathname[i] = 0x0A;
 }
 
+int getFullPathName(ConnectArg* args, char* ecdpathName, char* buffer)
+{
+    if(ecdpathName[0] == '/')
+        sprintf(buffer, "%s%s", SERVERDIR, ecdpathName);
+    else
+        sprintf(buffer, "%s%s/%s", SERVERDIR, args->dir, ecdpathName);
+    return 0;
+}
+
+int getUserPathName(ConnectArg* args, char* ecdpathName, char* buffer)
+{
+    if(ecdpathName[0] == '/')
+        sprintf(buffer, "%s", ecdpathName);
+    else
+        sprintf(buffer, "%s/%s", args->dir, ecdpathName);
+    return 0;
+}
 //int getNextDir(char* path, int p, int n)
 //{
 //    for(; p < n && path[p] !='/'; ++p);
@@ -177,8 +198,9 @@ void wait_for_connection(ConnectArg* args)
 //            printf("Error accept(): %s(%d)\n", strerror(errno), errno);
             if(errno == EAGAIN || errno == EWOULDBLOCK)
                 continue;
-            sendFmtMsg(&args->connfd, args, "accept failed", 0, 530);
-            puts("accept failed");
+//            sendFmtMsg(&args->connfd, args, "accept failed", 0, 530);
+//            puts("accept failed");
+            printf("accept failed %d\n", args->connfd);
             return ;
         }
         else
@@ -197,7 +219,7 @@ void wait_for_connection(ConnectArg* args)
     }
     printf("data connection from %d\n", datafd);
     args->datafd = datafd;
-    sendFmtMsg(&args->connfd, args, "data connection established", 0, 230);
+//    sendFmtMsg(&args->connfd, args, "data connection established", 0, 230);
 
 }
 
@@ -217,6 +239,7 @@ int user_handler(ConnectArg* args, char* cmd, int cmdn)
     {
         p = getParam(cmd, 1);
         len = cmdn - p;
+        printf("user len = %d cmdn = %d\n", len, cmdn);
         if(sistrcmp("anonymous", cmd, 0, p, MAX(len, strlen("anonymous"))) != 0)
         {
             msg = " only support anonymous";
@@ -230,7 +253,7 @@ int user_handler(ConnectArg* args, char* cmd, int cmdn)
     {
         set_cmd_status_all(args, CMD_DISABLE);
         set_cmd_status(args, PASS, CMD_ENABLE);
-//        sendFmtMsg(args, &cmd[p], len, 100);
+        set_cmd_status(args, QUIT, CMD_ENABLE);
         sendFmtMsg(&args->connfd, args, " password?", 0, 331);
     }
     return 0;
@@ -238,10 +261,10 @@ int user_handler(ConnectArg* args, char* cmd, int cmdn)
 
 int pass_handler(ConnectArg* args, char* cmd, int cmdn)
 {
-    int len = 0;
-    int p;
-    char* msg;
-    int code;
+//    int len = 0;
+//    int p;
+//    char* msg;
+//    int code;
     if(countParam(cmd) == 0)
     {
 //        msg = "expected exact 1 parameter";
@@ -257,12 +280,12 @@ int pass_handler(ConnectArg* args, char* cmd, int cmdn)
         set_cmd_status_all(args, CMD_ENABLE);
         set_cmd_status(args, USER, CMD_DISABLE);
         set_cmd_status(args, PASS, CMD_DISABLE);
-        set_cmd_status(args, LIST, CMD_DISABLE);
-        set_cmd_status(args, STOR, CMD_DISABLE);
-        set_cmd_status(args, RETR, CMD_DISABLE);
+//        set_cmd_status(args, LIST, CMD_DISABLE);
+//        set_cmd_status(args, STOR, CMD_DISABLE);
+//        set_cmd_status(args, RETR, CMD_DISABLE);
 
-        sendFmtMsg(&args->connfd, args, "-login!", 0, 230);
-        sendFmtMsg(&args->connfd, args, " welcome", 0, 230);
+        sendFmtMsg(&args->connfd, args, "login!", 0, 230);
+//        sendFmtMsg(&args->connfd, args, " welcome", 0, 230);
     }
 
     return 0;
@@ -270,12 +293,23 @@ int pass_handler(ConnectArg* args, char* cmd, int cmdn)
 
 int list_handler(ConnectArg* args, char* cmd, int cmdn)
 {
+    decodePathName(cmd, cmdn);
     if(args->datafd < 0)
     {
         sendFmtMsg(&args->connfd, args, "no connection established", 0, 425);
         return 0;
     }
-    int p = countParam(cmd);
+    int p;
+    char dpath[1024];
+
+    if(countParam(cmd) == 1)
+    {
+        p = getParam(cmd, 1);
+        getFullPathName(args, &cmd[p], dpath);
+    }
+    else
+        getFullPathName(args, "", dpath);
+//    int p = countParam(cmd);
 //    if(p > 1)
 //    {
 //        sendFmtMsg(&args->connfd, args, " too many args", 0, 530);
@@ -286,43 +320,36 @@ int list_handler(ConnectArg* args, char* cmd, int cmdn)
     struct stat finfo;
     char path[1024];
     char msg[1024];
-    dir = opendir("/home/shadowiterator/2018FTP/For_Student/ftp_dev/ftp_root");
-    while(ptr = readdir(dir))
+    dir = opendir(dpath);
+    ptr = readdir(dir);
+    while(ptr)
     {
-//        printf("%s ", ptr->d_name);
-//        stat(path, &finfo);
-//        printf("%d ", S_ISDIR(finfo.st_mode));
-//        printf("%d %d %d %d\n", finfo.st_uid, finfo.st_gid, finfo.st_atim, finfo.st_mtim);
-        sprintf(path, "/home/shadowiterator/%s", ptr->d_name);
+        sprintf(path, "%s%s", dpath, ptr->d_name);
         stat(path, &finfo);
         sprintf(msg, " %s %d", ptr->d_name, S_ISDIR(finfo.st_mode));
         sendFmtMsg(&args->datafd, args, msg, 0, 230);
+        ptr = readdir(dir);
     }
-//    if(args->datafd >= 0)
-//    {
-//        close(args->datafd);
-//        args->datafd = -1;
-//    }
+
     if(args->datafd != -1)
     {
-        args->datafd = args->datafd > 0 ? -(args->datafd) : args->datafd;
-//        shutdown(args->datafd, 0);
-//        shutdown(args->datafd, 1);
-
-        close(-args->datafd);
+        close(args->datafd > 0? args->datafd : -args->datafd);
         puts("close datafd");
         args->datafd = -1;
     }
-    set_cmd_status(args, LIST, CMD_DISABLE);
-    set_cmd_status(args, STOR, CMD_DISABLE);
-    set_cmd_status(args, RETR, CMD_DISABLE);
+    if(args->psvlistenfd != -1)
+    {
+        close(args->psvlistenfd > 0? args->psvlistenfd : -args->psvlistenfd);
+        puts("close listen");
+        args->psvlistenfd = -1;
+    }
 
     return 0;
 }
 
 int syst_handler(ConnectArg* args, char* cmd, int cmdn)
 {
-    sendFmtMsg(&args->connfd, args, " UNIX Type:L8", 0, 215);
+    sendFmtMsg(&args->connfd, args, "UNIX Type: L8", 0, 215);
     return 0;
 }
 
@@ -344,7 +371,7 @@ int type_handler(ConnectArg* args, char* cmd, int cmdn)
     }
     else
     {
-        sendFmtMsg(&args->connfd, args, " Type set to I", 0, 215);
+        sendFmtMsg(&args->connfd, args, "Type set to I.", 0, 200);
         return 0;
     }
 }
@@ -432,7 +459,7 @@ int port_handler(ConnectArg* args, char* cmd, int cmdn)
 
 int pasv_handler(ConnectArg* args, char* cmd, int cmdn)
 {
-    int listenfd, datafd;
+    int listenfd;
     struct sockaddr_in addr;
 
     if(args->datafd != -1)
@@ -514,9 +541,9 @@ int pasv_handler(ConnectArg* args, char* cmd, int cmdn)
 //    printf("xrport = %d\n",rport);
     sprintf(retMsg, "=%s,%d,%d", "127,0,0,1", (rport >> 8) & 0xff, rport & 0xff);
 
-    set_cmd_status(args, LIST, CMD_ENABLE);
-    set_cmd_status(args, STOR, CMD_ENABLE);
-    set_cmd_status(args, RETR, CMD_ENABLE);
+//    set_cmd_status(args, LIST, CMD_ENABLE);
+//    set_cmd_status(args, STOR, CMD_ENABLE);
+//    set_cmd_status(args, RETR, CMD_ENABLE);
 
     sendFmtMsg(&args->connfd, args, retMsg, 0, 227);
 
@@ -525,8 +552,8 @@ int pasv_handler(ConnectArg* args, char* cmd, int cmdn)
 
 int retr_handler(ConnectArg* args, char* cmd, int cmdn)
 {
-#define FBUFFSIZE 2000086
-    int p, len;
+#define RETRFBUFFSIZE 2000086
+    int p;
     decodePathName(cmd, cmdn);
     sendFmtMsg(&args->connfd, args, "get RETR request", 0, 150);
     char path[1024];
@@ -541,14 +568,15 @@ int retr_handler(ConnectArg* args, char* cmd, int cmdn)
         return 0;
     }
     p = getParam(cmd, 1);
-    len = cmdn - p;
+//    len = cmdn - p;
 //    decodePathName(&cmd[p], len);
-    sprintf(path, "%s%s%s", SERVERDIR, args->dir, &cmd[p]);
+//    sprintf(path, "%s%s%s", SERVERDIR, args->dir, &cmd[p]);
+    getFullPathName(args, &cmd[p], path);
     printf("trying to open %s\n", path);
     int fd = open(path, O_RDONLY);
-    char *fbuffer = malloc(FBUFFSIZE * sizeof(char));
+    char *fbuffer = malloc(RETRFBUFFSIZE * sizeof(char));
     int filelen;
-    if((filelen = read(fd, fbuffer, FBUFFSIZE - 1)) < 0)
+    if((filelen = read(fd, fbuffer, RETRFBUFFSIZE - 1)) < 0)
     {
         sendFmtMsg(&args->connfd, args, "unable to open file", 0, 551);
         goto retr_end;
@@ -563,6 +591,7 @@ int retr_handler(ConnectArg* args, char* cmd, int cmdn)
     sendFmtMsg(&args->connfd, args, "transform success", 0, 226);
 retr_end:
     free(fbuffer);
+    close(fd);
     if(args->datafd != -1)
     {
         close(args->datafd > 0? args->datafd : -args->datafd);
@@ -587,13 +616,23 @@ int cwd_handler(ConnectArg* args, char* cmd, int cmdn)
         return 0;
     }
     int p = getParam(cmd, 1);
-    int len = cmdn - p;
-    if(reducePath(&cmd[p], len) < 0)
+//    int len = cmdn - p;
+    char pathName[1040];
+    char fullPathName[1040];
+    getUserPathName(args, &cmd[p], pathName);
+    getFullPathName(args, &cmd[p], fullPathName);
+    if(reducePath(pathName, strlen(pathName)) < 0)
     {
         sendFmtMsg(&args->connfd, args, "invalid directory", 0, 550);
         return 0;
     }
-    strcpy(args->dir, &cmd[p]);
+    DIR* dir = opendir(fullPathName);
+    if(dir == NULL)
+    {
+        sendFmtMsg(&args->connfd, args, "no such directory", 0, 550);
+        return 0;
+    }
+    strcpy(args->dir, pathName);
     sendFmtMsg(&args->connfd, args, "Okey", 0, 250);
     return 0;
 }
@@ -603,5 +642,174 @@ int pwd_handler(ConnectArg* args, char* cmd, int cmdn)
     char msg[1040];
     sprintf(msg, "\"%s\"", args->dir);
     sendFmtMsg(&args->connfd, args, msg, 0, 550);
+    return 0;
+}
+
+int quit_handler(ConnectArg* args, char* cmd, int cmdn)
+{
+    sendFmtMsg(&args->connfd, args, "Bye", 0, 221);
+    close(args->connfd);
+    args->connfd = -1;
+    return 0;
+}
+
+int stor_handler(ConnectArg* args, char* cmd, int cmdn)
+{
+#define STORFBUFFSIZE 2000086
+    decodePathName(cmd, cmdn);
+    sendFmtMsg(&args->connfd, args, "get STOR request", 0, 150);
+    if(countParam(cmd) != 1)
+    {
+        sendFmtMsg(&args->connfd, args, "a parameter expected", 0, 550);
+        return 0;
+    }
+    char* buffer = malloc(STORFBUFFSIZE * sizeof(char));
+    if(args->datafd < 0)
+    {
+        sendFmtMsg(&args->connfd, args, "no connection established", 0, 425);
+        return 0;
+    }
+    int p = getParam(cmd, 1);
+//    int len = cmdn - p;
+    char path[1040];
+//    sprintf(path, "%s%s%s", SERVERDIR, args->dir, &cmd[p]);
+    getFullPathName(args, &cmd[p], path);
+    printf("stor : %s\n", path);
+    int fd = open(path, O_WRONLY | O_CREAT);
+    int flen = readMsg(&args->datafd, args, buffer, STORFBUFFSIZE);
+    if(flen < 0)
+    {
+        sendFmtMsg(&args->connfd, args, "connection broken", 0, 426);
+        goto storend;
+    }
+    if(write(fd, buffer, flen) < 0)
+    {
+        printf("Error: %s(%d)\n", strerror(errno), errno);
+        sendFmtMsg(&args->connfd, args, "failed to write file", 0, 452);
+        goto storend;
+    }
+    sendFmtMsg(&args->connfd, args, "STOR success", 0, 226);
+storend:
+    close(fd);
+    free(buffer);
+    if(args->datafd != -1)
+    {
+        close(args->datafd > 0? args->datafd : -args->datafd);
+        puts("close datafd");
+        args->datafd = -1;
+    }
+    if(args->psvlistenfd != -1)
+    {
+        close(args->psvlistenfd > 0? args->psvlistenfd : -args->psvlistenfd);
+        puts("close listen");
+        args->psvlistenfd = -1;
+    }
+    return 0;
+}
+
+int mkd_handler(ConnectArg* args, char* cmd ,int cmdn)
+{
+    decodePathName(cmd, cmdn);
+    if(countParam(cmd) != 1)
+    {
+        sendFmtMsg(&args->connfd, args, "a parameter is expected", 0, 530);
+        return 0;
+    }
+    int p = getParam(cmd, 1);
+    char pathname[1040];
+    getFullPathName(args, &cmd[p], pathname);
+    int tres = mkdir(pathname, S_IRWXU);
+    if(tres < 0)
+    {
+        sendFmtMsg(&args->connfd, args, "create dir failed", 0, 550);
+        return 0;
+    }
+    char msg[1080];
+    sprintf(msg, "\"%s\"", args->dir);
+    sendFmtMsg(&args->connfd, args, msg, 0, 250);
+    return 0;
+    /*
+     * /a/b
+     * MKD a/d/e
+     * /a/b
+     */
+}
+
+int rmd_handler(ConnectArg* args, char* cmd, int cmdn)
+{
+    decodePathName(cmd, cmdn);
+    if(countParam(cmd) != 1)
+    {
+        sendFmtMsg(&args->connfd, args, "a parameter is expected", 0, 530);
+        return 0;
+    }
+    int p = getParam(cmd, 1);
+    char pathname[1040];
+    getFullPathName(args, &cmd[p], pathname);
+    int tres = rmdir(pathname);
+    if(tres < 0)
+    {
+        sendFmtMsg(&args->connfd, args, "remove dir failed", 0, 550);
+        return 0;
+    }
+//    char msg[1080];
+//    sprintf(msg, "\"%s\"", args->dir);
+    sendFmtMsg(&args->connfd, args, "rm okey", 0, 250);
+    return 0;
+}
+
+int rnfr_handler(ConnectArg* args, char* cmd, int cmdn)
+{
+    decodePathName(cmd, cmdn);
+    if(countParam(cmd) != 1)
+    {
+        sendFmtMsg(&args->connfd, args, "a parameter is required", 0, 530);
+        return 0;
+    }
+    char pathName[1080];
+    int p = getParam(cmd, 1);
+    getFullPathName(args, &cmd[p], pathName);
+    if(!file_exists(pathName))
+    {
+       sendFmtMsg(&args->connfd, args, "file do not exist", 0, 450);
+        return 0;
+    }
+    sendFmtMsg(&args->connfd, args, "RNFR OK", 0, 350);
+    int nlen = readMsg(&args->connfd, args, args->readbuffer, BUFFSIZE);
+    if(nlen < 0)
+        return 0;
+    int hid = seek_handler(args, args->readbuffer);
+    if(hid != RNTO)
+        processMsg(args, args->readbuffer, nlen);
+    else
+        rnto_handler_accept(args, pathName, args->readbuffer, nlen);
+    return 0;
+}
+
+int rnto_handler_accept(ConnectArg* args, char* oldpath, char* cmd, int cmdn)
+{
+    decodePathName(cmd, cmdn);
+    if(countParam(cmd) != 1)
+    {
+        sendFmtMsg(&args->connfd, args, "a parameter is required", 0, 550);
+        return 0;
+    }
+    char newpath[1080];
+    int p = getParam(cmd, 1);
+    getFullPathName(args, &cmd[p], newpath);
+    int tret = rename(oldpath, newpath);
+    if(tret < 0)
+    {
+        sendFmtMsg(&args->connfd, args, "rename failed", 0, 553);
+        return 0;
+    }
+    sendFmtMsg(&args->connfd, args, "rename ok", 0, 250);
+    return 0;
+
+}
+
+int rnto_handler_refuse(ConnectArg* args, char* cmd, int cmdn)
+{
+    sendFmtMsg(&args->connfd, args, "RNTO must comes after RNFR", 0, 503);
     return 0;
 }

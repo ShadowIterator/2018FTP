@@ -3,8 +3,7 @@
 #include "msghandler.h"
 #include "server.h"
 
-#define BUFFSIZE (8192)
-#define DIRSIZE (1024)
+
 
 
 //TODO: cmd_stats diff from clients!
@@ -37,8 +36,14 @@ void _init_cmd_list()
     register_cmd("PORT", PORT, port_handler);
     register_cmd("PASV", PASV, pasv_handler);
     register_cmd("RETR", RETR, retr_handler);
+    register_cmd("STOR", STOR, stor_handler);
     register_cmd("CWD", CWD, cwd_handler);
     register_cmd("PWD", PWD, pwd_handler);
+    register_cmd("QUIT", QUIT, quit_handler);
+    register_cmd("MKD", MKD, mkd_handler);
+    register_cmd("RMD", RMD, rmd_handler);
+    register_cmd("RNFR", RNFR, rnfr_handler);
+    register_cmd("RNTO", RNTO, rnto_handler_refuse);
 //    set_cmd_status(USER, CMD_ENABLE);
 //    set_cmd_status(LIST, CMD_ENABLE);
 //    set_cmd_status(SYST, CMD_ENABLE);
@@ -60,6 +65,7 @@ int register_cmd(char* cmd, int id, cmd_handler hdr)
     strcpy(cmd_list[id].CMD, cmd);
     cmd_list[id].id = id;
     cmd_list[id].hdr = hdr;
+    return 0;
 }
 
 void clear_connect_arg(ConnectArg* args)
@@ -87,7 +93,7 @@ int seek_handler(ConnectArg* args, char* cmd)
     return -1;
 }
 
-int readMsg(int* fd, ConnectArg* args, char* buffer)
+int readMsg(int* fd, ConnectArg* args, char* buffer, int bufferLen)
 {
 //    char* buffer = args->buffer;
 //    int connfd = args->connfd;
@@ -96,7 +102,7 @@ int readMsg(int* fd, ConnectArg* args, char* buffer)
         //榨干socket传来的内容
     p = 0;
     while (1) {
-        int n = read(*fd, buffer + p, 8191 - p);
+        int n = read(*fd, buffer + p, bufferLen - 1 - p);
         if (n < 0) {
             printf("connection-%d : Error read(): %s(%d)\n", *fd, strerror(errno), errno);
             *fd = *fd > 0 ? -(*fd) : *fd;
@@ -107,7 +113,7 @@ int readMsg(int* fd, ConnectArg* args, char* buffer)
             break;
         } else {
             p += n;
-            if (buffer[p - 1] == '\n') {
+            if (buffer[p - 1] == '\n' && (*fd) == args->connfd) {
                 break;
             }
         }
@@ -121,50 +127,66 @@ int readMsg(int* fd, ConnectArg* args, char* buffer)
         return -1;
     }
     //socket接收到的字符串并不会添加'\0'
-    buffer[p - 1] = '\0';
-    len = p - 1;
-
-    // print debug info
-    printf("%d recv%8x %s\n",*fd , len, buffer);
-
-//  handle exit _temp.
-    if(len == 1 && buffer[0] == 'Q')
+    if((*fd) == args->connfd)
     {
-//        write(connfd, "squit", 5);
-        sendMsg(fd, args, "squit", 5);
+        buffer[p - 1] = '\0';
+        len = p - 1;
+        if (buffer[len - 1] == '\r') {
+            buffer[--len] = '\0';
+        }
     }
+    else
+        len = p;
+    // print debug info
+    if((*fd) == args->connfd)
+    {
+        printf("%d recv%8x %s\n", *fd, len, buffer);
+    }
+    else
+    {
+        printf("%d recv%8x Bytes\n", *fd, len);
+    }
+//  handle exit _temp.
+//    if(len == 1 && buffer[0] == 'Q')
+//    {
+////        write(connfd, "squit", 5);
+//        sendMsg(fd, args, "squit", 5);
+//    }
     return len;
 }
 
-int sendMsg(int* fd, ConnectArg* args, char* buffer, int len)
-{
+int sendMsg(int* fd, ConnectArg* args, char* buffer, int len) {
 //    char* wbuf[BUFFSIZE];
-    if(!len)
+    if (!len)
         len = strlen(buffer);
 //    int connfd = args->connfd;
     int p = 0;
-    while (p < len)
-    {
-        int n = write(*fd, buffer + p, len + 1 - p);
-        if (n < 0)
-        {
+    while (p < len) {
+        int n = write(*fd, buffer + p, len - p);
+        if (n < 0) {
 //            args->closed = 1;
 //            *fd = *fd > 0 ? -(*fd) : *fd;
             *fd = *fd > 0 ? -(*fd) : *fd;
             close(-(*fd));
             *fd = -1;
-            printf("Error write(): %s(%d)\n", strerror(errno), errno);
+            printf("fd : %d Error write(): %s(%d)\n", *fd, strerror(errno), errno);
             return -1;
-        }
-        else
-        {
+        } else {
             p += n;
         }
     }
-    printf("%d send%8x ", *fd, len);
-    for(int i = 0; i < len; ++i)
-        putchar(buffer[i]);
-    putchar('\n');
+    if ((*fd) == args->connfd)
+    {
+        printf("%d send%8x ", *fd, len);
+            for (int i = 0; i < len; ++i)
+                putchar(buffer[i]);
+        putchar('\n');
+    }
+    else
+    {
+        printf("%d send%8x Bytes\n", *fd, len);
+    }
+
     return 0;
 }
 
@@ -173,7 +195,7 @@ int sendFmtMsg(int* fd, ConnectArg* args, char* buffer, int len, int code)
     char wbuf[BUFFSIZE + 10];
     char fmt[20];
     if(len <= 0) len = strlen(buffer);
-    sprintf(fmt, "%%d %%.%ds", len);
+    sprintf(fmt, "%%d %%.%ds\r\n", len);
     sprintf(wbuf, fmt, code, buffer);
     return sendMsg(fd, args, wbuf, strlen(wbuf));
 }
@@ -183,12 +205,11 @@ int processMsg(ConnectArg* args, char* cmd, int len)
     int hid = seek_handler(args, cmd);
     if(hid < 0)
     {
-        sendMsg(&args->connfd, args, "invalid command", 0);
+        sendFmtMsg(&args->connfd, args, "invalid command", 0, 555);
         return -1;
     }
     (*(cmd_list[hid].hdr))(args, cmd, len);
-//    strcpy(args->writebuffer, args->readbuffer);
-//    sendMsg(args, args->writebuffer, len);
+    return 0;
 }
 
 int aserver(ConnectArg* args)
@@ -201,11 +222,15 @@ int aserver(ConnectArg* args)
     strcpy(args->dir, "");
     set_cmd_status(args, USER, CMD_ENABLE);
     //------------------------------------
-    set_cmd_status(args, PASV, CMD_ENABLE);
-    set_cmd_status(args, PORT, CMD_ENABLE);
-    set_cmd_status(args, RETR, CMD_ENABLE);
-    set_cmd_status(args, CWD, CMD_ENABLE);
-    set_cmd_status(args, PWD, CMD_ENABLE);
+//    set_cmd_status(args, PASV, CMD_ENABLE);
+//    set_cmd_status(args, PORT, CMD_ENABLE);
+//    set_cmd_status(args, RETR, CMD_ENABLE);
+//    set_cmd_status(args, CWD, CMD_ENABLE);
+//    set_cmd_status(args, PWD, CMD_ENABLE);
+//    set_cmd_status(args, MKD, CMD_ENABLE);
+//    set_cmd_status(args, RMD, CMD_ENABLE);
+//    set_cmd_status(args, RNFR, CMD_ENABLE);
+//    set_cmd_status(args, RNTO, CMD_ENABLE);
     //------------------------------------
     int len;
     while(1)
@@ -219,17 +244,36 @@ int aserver(ConnectArg* args)
 //            close(-args->datafd);
             args->datafd = -1;
         }
-        len = readMsg(&args->connfd, args, args->readbuffer);
+        len = readMsg(&args->connfd, args, args->readbuffer, BUFFSIZE);
         if(len > 0)
             processMsg(args, args->readbuffer, len);
 //        sendMsg(args, args->buffer, len);
     }
 //    close(-args->connfd);
+    if(args->datafd > 0)
+    {
+        printf("close datafd\n");
+        close(args->datafd);
+    }
+    if(args->psvlistenfd > 0)
+    {
+        printf("close listenfd\n");
+        close(args->psvlistenfd);
+    }
     puts("close connfd");
     clear_connect_arg(args);
     return 0;
 }
 
+int getConsoleParam(char* cmd, int argc, char** argv)
+{
+    for(int i = 1; i < argc; ++i)
+    {
+        if(strcmp(cmd, argv[i]) == 0 && i + 1 < argc)
+            return i + 1;
+    }
+    return -1;
+}
 
 int main(int argc, char **argv) {
 
@@ -241,6 +285,17 @@ int main(int argc, char **argv) {
 //    printf("%d : %s\n", reduceRes, tpath);
 
     //-----------test done------------
+
+    int dirID = getConsoleParam("-root", argc, argv);
+    int portID = getConsoleParam("-port", argc, argv);
+    if(dirID > 0)
+        strcpy(SERVERDIR, argv[dirID]);
+    else
+        strcpy(SERVERDIR, "/tmp");
+    if(portID > 0)
+        SERVERPORT = atoi(argv[portID]);
+    else
+        SERVERPORT = 21;
 
     int listenfd, connfd;		//监听socket和连接socket不一样，后者用于数据传输
     struct sockaddr_in addr;
@@ -254,7 +309,7 @@ int main(int argc, char **argv) {
     //设置本机的ip和port
     memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
-    addr.sin_port = htons(6789);
+    addr.sin_port = htons(SERVERPORT);
     addr.sin_addr.s_addr = htonl(INADDR_ANY);	//监听"0.0.0.0"
 
     //将本机的ip和port与socket绑定
@@ -283,7 +338,7 @@ int main(int argc, char **argv) {
         ConnectArg* parg = malloc(sizeof(ConnectArg));
         parg->connfd = connfd;
         int tret = pthread_create(&(parg->tid), NULL, (void*)aserver, (void*)parg);
-        sendFmtMsg(&parg->connfd, parg, "Anonymous FTP server ready.", 0, 200);
+        sendFmtMsg(&parg->connfd, parg, "Anonymous FTP server ready.", 0, 220);
         if(tret)
         {
             write(connfd, "create thread failed\n", 21);

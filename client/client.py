@@ -42,6 +42,8 @@ class RecvThread(threading.Thread):
                     datasock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                     datasock.connect((ip, port))
                     self.dic['datasock'] = datasock
+                    print('datasock bind')
+                    # self.dic['datasock'].send('xxxxxxxxxxxxx'.decode())
                 except:
                     print('unable to connect server')
 
@@ -109,19 +111,7 @@ class SendThread(threading.Thread):
                     print("cannot establish connect")
                     continue
             elif(paramL[0] == 'LIST'):
-                try:
-                    self.dic['sock'].send((msg + '\n').encode())
-                    # if(self.dic['datasock'] == None):
-                    #     continue
-                    # while(True):
-                    #     listData = self.dic['datasock'].recv(size)
-                    #     print(len(listData))
-                    #     if not listData:
-                    #         break
-                    #     print('datarecv : ' + listData.decode())
-                except:
-                    # print("cannot establish connect")
-                    continue
+                self.dic['sock'].send((msg + '\n').encode())
             elif(paramL[0] == 'PASV'):
                 if (self.dic['datasock'] != None):
                     print("close datasock")
@@ -131,6 +121,15 @@ class SendThread(threading.Thread):
                     print("close dataConn")
                     self.dic['listensock'].close()
                 self.dic['sock'].send((msg + '\n').encode())
+            elif(paramL[0] == 'STOR'):
+                self.dic['sock'].send((msg + '\n').encode())
+                try:
+                    data = input('input some data')
+                    self.dic['datasock'].send(data.encode())
+                    self.dic['datasock'].close()
+                except:
+                    print('trans data failed')
+                # self.dic['datasock'].close()
             else:
                 self.dic['sock'].send((msg + '\n').encode())
 
@@ -147,11 +146,11 @@ try:
     tdata = DataThread(2, 'data', dic)
     tsend.start()
     trecv.start()
-    tdata.start()
+    # tdata.start()
 
     tsend.join()
     trecv.join()
-    tdata.join()
+    # tdata.join()
     # while(True):
     #     # data = sock.recv(size)
     #     # while(len(data) > 0):
