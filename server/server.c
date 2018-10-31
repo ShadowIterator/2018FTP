@@ -77,6 +77,7 @@ void clear_connect_arg(ConnectArg* args)
     args->writebuffer = NULL;
     args->dir = NULL;
     args->connfd = -1;
+    free(args);
 }
 
 int seek_handler(ConnectArg* args, char* cmd)
