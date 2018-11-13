@@ -22,6 +22,7 @@ int mkd_handler(ConnectArg*, char*, int);
 int rmd_handler(ConnectArg*, char*, int);
 int rnfr_handler(ConnectArg*, char*, int);
 int rnto_handler_refuse(ConnectArg*, char*, int);
+int rest_handler(ConnectArg*, char*, int);
 
 int rnto_handler_accept(ConnectArg* args, char* oldpath, char* cmd, int cmdn);
 int reducePath(char* path, int n);

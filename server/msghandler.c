@@ -7,15 +7,15 @@
 #include "server.h"
 #include "sistring.h"
 
-
+typedef struct
+{
+    int filefd;
+    ConnectArg* cargs;
+}FileArgs;
 
 int countParam(char* cmd)
 {
-//    int p = 0;
-//    int rtn = 0;
     int p = 0;
-//    for(int p = 0;; ++p, ++rtn)
-//    {
     while(cmd[p] && cmd[p] != ' ')
         ++p;
     if(cmd[p] && cmd[p] == ' ')
@@ -25,7 +25,6 @@ int countParam(char* cmd)
         return 0;
     else
         return 1;
-//    }
 }
 
 int file_exists(char* path)
@@ -83,9 +82,6 @@ int getParam(char* cmd, int k)
 
 int checkParamterN(char* cmd, int n)
 {
-//    int len = 0;
-//    int p;
-//    return (p = getParam(cmd, n, &len)) > 0 && getParam(&cmd[p + len], 1, &len) == -1;
     return countParam(cmd) == n;
 }
 
@@ -220,7 +216,97 @@ void wait_for_connection(ConnectArg* args)
     printf("data connection from %d\n", datafd);
     args->datafd = datafd;
 //    sendFmtMsg(&args->connfd, args, "data connection established", 0, 230);
+}
 
+int send_file(FileArgs* cargs)
+{
+#define RETRFBUFFSIZE 5
+    int fd = cargs->filefd;
+    ConnectArg* args = cargs->cargs;
+    char *fbuffer = malloc(RETRFBUFFSIZE * sizeof(char));
+    int filelen;
+    int msgRet;
+    while((filelen = read(fd, fbuffer, RETRFBUFFSIZE)))
+    {
+        usleep(500000);
+//        sleep(1);
+        if(filelen < 0)
+        {
+            sendFmtMsg(&args->connfd, args, "unable to open file", 0, 551);
+            goto send_file_end;
+        }
+        else
+        {
+            msgRet = sendMsg(&args->datafd, args, fbuffer, filelen);
+            if(msgRet < 0)
+            {
+                sendFmtMsg(&args->connfd, args, "connection broken", 0, 426);
+                goto send_file_end;
+            }
+        }
+    }
+
+//    sendFmtMsg(&args->connfd, args, "transform success", 0, 226);
+
+    send_file_end:
+    cargs->cargs->sp = 0;
+    free(fbuffer);
+    free(cargs);
+    close(fd);
+    if(args->datafd != -1)
+    {
+        close(args->datafd > 0? args->datafd : -args->datafd);
+        puts("close datafd");
+        args->datafd = -1;
+    }
+    if(args->psvlistenfd != -1)
+    {
+        close(args->psvlistenfd > 0? args->psvlistenfd : -args->psvlistenfd);
+        puts("close listen");
+        args->psvlistenfd = -1;
+    }
+    return 0;
+}
+
+int recv_file(FileArgs* cargs)
+{
+#define STORFBUFFSIZE 5
+    char* buffer = malloc(STORFBUFFSIZE * sizeof(char));
+
+    int fd = cargs->filefd;
+    ConnectArg* args = cargs->cargs;
+    int flen = 0;
+    while(flen = readMsg(&args->datafd, args, buffer, STORFBUFFSIZE))
+    {
+        if(flen < 0)
+        {
+            sendFmtMsg(&args->connfd, args, "connection broken", 0, 426);
+            goto recv_file_end;
+        }
+        if(write(fd, buffer, flen) < 0)
+        {
+            printf("Error: %s(%d)\n", strerror(errno), errno);
+            sendFmtMsg(&args->connfd, args, "failed to write file", 0, 452);
+            goto recv_file_end;
+        }
+    }
+    sendFmtMsg(&args->connfd, args, "STOR success", 0, 226);
+    recv_file_end:
+    close(fd);
+    free(buffer);
+    free(cargs);
+    if(args->datafd != -1)
+    {
+        close(args->datafd > 0? args->datafd : -args->datafd);
+        puts("close datafd");
+        args->datafd = -1;
+    }
+    if(args->psvlistenfd != -1)
+    {
+        close(args->psvlistenfd > 0? args->psvlistenfd : -args->psvlistenfd);
+        puts("close listen");
+        args->psvlistenfd = -1;
+    }
 }
 
 int user_handler(ConnectArg* args, char* cmd, int cmdn)
@@ -516,12 +602,6 @@ int pasv_handler(ConnectArg* args, char* cmd, int cmdn)
         return 0;
     }
 
-//    int connfd;
-//    if ((connfd = accept(listenfd, NULL, NULL)) == -1) {
-//        printf("Error accept(): %s(%d)\n", strerror(errno), errno);
-//        return 0;
-//    }
-
     // set non blocking
     int flags = fcntl(listenfd, F_GETFL, 0);
     fcntl(listenfd, F_SETFL, flags | O_NONBLOCK);
@@ -538,21 +618,39 @@ int pasv_handler(ConnectArg* args, char* cmd, int cmdn)
     pthread_detach(pid);
 
     char retMsg[100];
-//    printf("xrport = %d\n",rport);
     sprintf(retMsg, "=%s,%d,%d", "127,0,0,1", (rport >> 8) & 0xff, rport & 0xff);
 
-//    set_cmd_status(args, LIST, CMD_ENABLE);
-//    set_cmd_status(args, STOR, CMD_ENABLE);
-//    set_cmd_status(args, RETR, CMD_ENABLE);
+
 
     sendFmtMsg(&args->connfd, args, retMsg, 0, 227);
 
     return 0;
 }
 
+int rest_handler(ConnectArg* args, char* cmd, int cmdn)
+{
+    if(countParam(cmd) != 1)
+    {
+        sendFmtMsg(&args->connfd, args, "no path specified", 0, 530);
+        return 0;
+    }
+    int p = getParam(cmd, 1);
+//    int plen = cmdn - p;
+    char* ptr = NULL;
+    int nsp = (int)(strtol(&cmd[p], &ptr, 10));
+    if (errno != 0 && nsp == 0)
+    {
+        sendFmtMsg(&args->connfd, args, "invalid parameter", 0, 550);
+        return 0;
+    }
+    args->sp = nsp;
+    sendFmtMsg(&args->connfd, args, "successfully set starting point", 0, 350);
+
+    return 0;
+}
+
 int retr_handler(ConnectArg* args, char* cmd, int cmdn)
 {
-#define RETRFBUFFSIZE 2000086
     int p;
     decodePathName(cmd, cmdn);
     sendFmtMsg(&args->connfd, args, "get RETR request", 0, 150);
@@ -573,43 +671,34 @@ int retr_handler(ConnectArg* args, char* cmd, int cmdn)
 //    sprintf(path, "%s%s%s", SERVERDIR, args->dir, &cmd[p]);
     getFullPathName(args, &cmd[p], path);
     printf("trying to open %s\n", path);
-    int fd = open(path, O_RDONLY);
-    char *fbuffer = malloc(RETRFBUFFSIZE * sizeof(char));
-    int filelen;
-    if((filelen = read(fd, fbuffer, RETRFBUFFSIZE - 1)) < 0)
+
+
+
+    FileArgs* cargs = malloc(sizeof(FileArgs));
+    cargs->filefd = open(path, O_RDONLY);
+    cargs->cargs = args;
+    if(lseek(cargs->filefd, args->sp, SEEK_SET) < 0 )
     {
-        sendFmtMsg(&args->connfd, args, "unable to open file", 0, 551);
-        goto retr_end;
+        printf("Error: %s(%d)\n", strerror(errno), errno);
+        sendFmtMsg(&args->connfd, args, "filed in lseek, try to set starting point first", 0, 452);
+        lseek(cargs->filefd, 0, SEEK_END);
     }
-    fbuffer[filelen] = '\0';
-    int msgRet = sendMsg(&args->datafd, args, fbuffer, filelen);
-    if(msgRet < 0)
+
+    pthread_t pid;
+    int pret = pthread_create(&pid, NULL, (void*)send_file, (void*)cargs);
+    if(pret)
     {
-        sendFmtMsg(&args->connfd, args, "connection broken", 0, 426);
-        goto retr_end;
+        sendFmtMsg(&args->connfd, args, "create thread failed", 0, 530);
+        return 0;
     }
-    sendFmtMsg(&args->connfd, args, "transform success", 0, 226);
-retr_end:
-    free(fbuffer);
-    close(fd);
-    if(args->datafd != -1)
-    {
-        close(args->datafd > 0? args->datafd : -args->datafd);
-        puts("close datafd");
-        args->datafd = -1;
-    }
-    if(args->psvlistenfd != -1)
-    {
-        close(args->psvlistenfd > 0? args->psvlistenfd : -args->psvlistenfd);
-        puts("close listen");
-        args->psvlistenfd = -1;
-    }
+    pthread_detach(pid);
+
     return 0;
 }
 
 int cwd_handler(ConnectArg* args, char* cmd, int cmdn)
 {
-    decodePathName(cmd,cmdn);
+    decodePathName(cmd, cmdn);
     if(countParam(cmd) != 1)
     {
         sendFmtMsg(&args->connfd, args, "a parameter is required", 0, 550);
@@ -655,7 +744,7 @@ int quit_handler(ConnectArg* args, char* cmd, int cmdn)
 
 int stor_handler(ConnectArg* args, char* cmd, int cmdn)
 {
-#define STORFBUFFSIZE 2000086
+
     decodePathName(cmd, cmdn);
     sendFmtMsg(&args->connfd, args, "get STOR request", 0, 150);
     if(countParam(cmd) != 1)
@@ -663,47 +752,33 @@ int stor_handler(ConnectArg* args, char* cmd, int cmdn)
         sendFmtMsg(&args->connfd, args, "a parameter expected", 0, 550);
         return 0;
     }
-    char* buffer = malloc(STORFBUFFSIZE * sizeof(char));
     if(args->datafd < 0)
     {
         sendFmtMsg(&args->connfd, args, "no connection established", 0, 425);
         return 0;
     }
     int p = getParam(cmd, 1);
-//    int len = cmdn - p;
     char path[1040];
-//    sprintf(path, "%s%s%s", SERVERDIR, args->dir, &cmd[p]);
+
     getFullPathName(args, &cmd[p], path);
     printf("stor : %s\n", path);
-    int fd = open(path, O_WRONLY | O_CREAT);
-    int flen = readMsg(&args->datafd, args, buffer, STORFBUFFSIZE);
-    if(flen < 0)
+
+    FileArgs* cargs = malloc(sizeof(FileArgs));
+    cargs->filefd = open(path, O_WRONLY | O_CREAT);
+    cargs->cargs = args;
+
+    pthread_t pid;
+    int pret = pthread_create(&pid, NULL, (void*)recv_file, (void*)cargs);
+    if(pret)
     {
-        sendFmtMsg(&args->connfd, args, "connection broken", 0, 426);
-        goto storend;
+        sendFmtMsg(&args->connfd, args, "create thread failed", 0, 530);
+        return 0;
     }
-    if(write(fd, buffer, flen) < 0)
-    {
-        printf("Error: %s(%d)\n", strerror(errno), errno);
-        sendFmtMsg(&args->connfd, args, "failed to write file", 0, 452);
-        goto storend;
-    }
-    sendFmtMsg(&args->connfd, args, "STOR success", 0, 226);
-storend:
-    close(fd);
-    free(buffer);
-    if(args->datafd != -1)
-    {
-        close(args->datafd > 0? args->datafd : -args->datafd);
-        puts("close datafd");
-        args->datafd = -1;
-    }
-    if(args->psvlistenfd != -1)
-    {
-        close(args->psvlistenfd > 0? args->psvlistenfd : -args->psvlistenfd);
-        puts("close listen");
-        args->psvlistenfd = -1;
-    }
+    pthread_detach(pid);
+
+
+
+
     return 0;
 }
 

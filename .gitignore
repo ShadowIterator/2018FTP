@@ -7,3 +7,5 @@ CMakeLists.txt
 TEST/
 *.data
 autograde.py
+*.txt
+*/venv/

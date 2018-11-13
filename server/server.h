@@ -9,7 +9,7 @@
 
 #define CMD_ENABLE 1
 #define CMD_DISABLE 0
-#define CMD_N (16)
+#define CMD_N (18)
 #define BUFFSIZE (8192)
 #define DIRSIZE (1024)
 
@@ -19,7 +19,7 @@ int SERVERPORT;
 enum CMD_TYPE
 {
     USER = 0, PASS, RETR, STOR, QUIT, SYST, TYPE, PORT, PASV,
-    MKD, CWD, PWD, LIST, RMD, RNFR, RNTO
+    MKD, CWD, PWD, LIST, RMD, RNFR, RNTO, REST, APPE
 }cmd_id;
 
 typedef struct
@@ -33,6 +33,7 @@ typedef struct
     int closed;
     int cmdflag;
     int psvlistenfd;
+    int sp;
 
 }ConnectArg;
 

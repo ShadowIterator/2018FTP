@@ -4,9 +4,17 @@ import time
 import re
 import argparse
 
+fpid = 3
 size = 200086
 fexit = False
 ipre = re.compile(r'\d+,\d+,\d+,\d+,\d+,\d+')
+
+
+def try_close_sock(dic, name):
+    if (dic[name] != None):
+        print('close socket : ' + name)
+        dic[name].close()
+        dic[name] = None
 
 class RecvThread(threading.Thread):
     def __init__(self, threadID, name, dic):
@@ -15,11 +23,11 @@ class RecvThread(threading.Thread):
         self.name = name
         self.dic = dic
 
-    def try_close_sock(self, name):
-        if (self.dic[name] != None):
-            print('close socket : '+name)
-            self.dic[name].close()
-            self.dic[name] = None
+    # def try_close_sock(self, name):
+    #     if (self.dic[name] != None):
+    #         print('close socket : '+name)
+    #         self.dic[name].close()
+    #         self.dic[name] = None
 
     def run(self):
         global fexit
@@ -44,9 +52,8 @@ class RecvThread(threading.Thread):
                 print(dataL)
                 port = int(dataL[4]) * 256 + int(dataL[5])
                 ip = dataL[0] + '.' + dataL[1] + '.' + dataL[2] + '.' + dataL[3]
-
-                self.try_close_sock('datasock')
-                self.try_close_sock('listensock')
+                try_close_sock(self.dic, 'datasock')
+                try_close_sock(self.dic, 'listensock')
                 try:
                     print(ip, port)
                     datasock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -55,6 +62,67 @@ class RecvThread(threading.Thread):
                     print('datasock bind')
                 except:
                     print('unable to connect server')
+
+class SendFileThread(threading.Thread):
+    def __init__(self, threadID, name, dic, filename):
+        threading.Thread.__init__(self)
+        self.threadID = threadID
+        self.name = name
+        self.dic = dic
+        self.filename = filename
+
+    def run(self):
+        filename = self.filename
+        try:
+            f = open(filename, 'rb')
+            fdata = f.read(5)
+            while(len(fdata) > 0):
+                self.dic['datasock'].send(fdata)
+                print('send data : ', fdata)
+                time.sleep(0.5)
+                fdata = f.read(5)
+            f.close()
+        except:
+            print('read file failed or connection failed')
+        # try:
+        #     self.dic['datasock'].send(fdata)
+        # except:
+        #     print('trans data failed')
+        try_close_sock(self.dic, 'datasock')
+        try_close_sock(self.dic, 'listensock')
+
+
+class RecvFileThread(threading.Thread):
+    def __init__(self, threadID, name, dic, filename):
+        threading.Thread.__init__(self)
+        self.threadID = threadID
+        self.name = name
+        self.dic = dic
+        self.filename = filename
+
+    def run(self):
+        filename = self.filename
+        try:
+            f = open(filename, 'wb')
+        except:
+            print('RETR: open file failed')
+
+        try:
+            fdata = self.dic['datasock'].recv(5)
+            while (len(fdata) > 0):
+                print('fdata = ', fdata)
+                f.write(fdata)
+                fdata = self.dic['datasock'].recv(5)
+        except:
+            print('RETR: trans data failed or write file failed')
+        try:
+            f.close()
+        except:
+            print('RETR: close file failed')
+        try_close_sock(self.dic, 'datasock')
+        try_close_sock(self.dic, 'listensock')
+        print(self.name + ' done')
+
 
 class DataThread(threading.Thread):
     def __init__(self, threadID, name, dic):
@@ -94,8 +162,8 @@ class SendThread(threading.Thread):
                     ip = dataL[0] + '.' + dataL[1] + '.' + dataL[2] + '.' + dataL[3]
                     port = int(dataL[4]) * 256 + int(dataL[5])
                     print(ip, port)
-                    self.try_close_sock('datasock')
-                    self.try_close_sock('listensock')
+                    try_close_sock(self.dic, 'datasock')
+                    try_close_sock(self.dic, 'listensock')
                     self.dic['listensock'] = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                     self.dic['listensock'].bind((ip, port))
                     print("PORT: bind done")
@@ -120,57 +188,29 @@ class SendThread(threading.Thread):
                             print(data)
                 except:
                     print("list: data connect not established")
-                self.try_close_sock('datasock')
-                self.try_close_sock('listensock')
+                try_close_sock(self.dic, 'datasock')
+                try_close_sock(self.dic, 'listensock')
             elif(paramL[0] == 'PASV'):
-                self.try_close_sock('datasock')
-                self.try_close_sock('listensock')
+                try_close_sock(self.dic, 'datasock')
+                try_close_sock(self.dic, 'listensock')
                 self.dic['sock'].send((msg + '\n').encode())
             elif(paramL[0] == 'STOR'):
                 filename = input('specify upload file name:')
-                try:
-                    f = open(filename, 'rb')
-                    fdata = f.read(200086)
-                    f.close()
-                except:
-                    print('open file failed')
-                    self.try_close_sock('datasock')
-                    self.try_close_sock('listensock')
-                    continue
                 self.dic['sock'].send((msg + '\n').encode())
-                try:
-                    self.dic['datasock'].send(fdata)
-                except:
-                    print('trans data failed')
-                self.try_close_sock('datasock')
-                self.try_close_sock('listensock')
+                tsfile = SendFileThread(4, 'sFile', self.dic, filename)
+                tsfile.start()
             elif(paramL[0] == 'RETR'):
-                self.dic['recvcode'] = -1
+                # self.dic['recvcode'] = -1
                 self.dic['sock'].send((msg + '\n').encode())
-                rtncode = self.wait_for_sock_recv()
-                print("RETR: rtncode = ", rtncode)
-                # if(rtncode == 150):
-                try:
-                    fdata = self.dic['datasock'].recv(20086)
-                except:
-                    print('RETR: trans data failed')
-                    self.try_close_sock('datasock')
-                    self.try_close_sock('listensock')
-                    continue
                 filename = input('specify upload file name:')
-                try:
-                    f = open(filename, 'wb')
-                    f.write(fdata)
-                    f.close()
-                except:
-                    print('RETR: open file failed')
-                self.try_close_sock('datasock')
-                self.try_close_sock('listensock')
+                trfile = RecvFileThread(3, 'rFile', self.dic, filename)
+                trfile.start()
             elif(paramL[0] == 'QUIT'):
                 self.dic['sock'].send((msg + '\n').encode())
-                self.try_close_sock('sock')
-                self.try_close_sock('datasock')
-                self.try_close_sock('listensock')
+                # self.try_close_sock('sock')
+                try_close_sock(self.dic, 'sock')
+                try_close_sock(self.dic, 'datasock')
+                try_close_sock(self.dic, 'listensock')
                 return
             else:
                 self.dic['sock'].send((msg + '\n').encode())
@@ -181,11 +221,11 @@ class SendThread(threading.Thread):
             if(self.dic['recvcode'] > 0):
                 return self.dic['recvcode']
 
-    def try_close_sock(self, name):
-        if (self.dic[name] != None):
-            print('close socket : '+name)
-            self.dic[name].close()
-            self.dic[name] = None
+    # def try_close_sock(self, name):
+    #     if (self.dic[name] != None):
+    #         print('close socket : '+name)
+    #         self.dic[name].close()
+    #         self.dic[name] = None
 
 try:
     parser = argparse.ArgumentParser()
@@ -207,7 +247,7 @@ try:
     dic['recvcode'] = -1
     trecv = RecvThread(0, 'recv', dic)
     tsend = SendThread(1, 'send', dic)
-    tdata = DataThread(2, 'data', dic)
+    # tdata = DataThread(2, 'data', dic)
     tsend.start()
     trecv.start()
     # tdata.start()

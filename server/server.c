@@ -44,10 +44,7 @@ void _init_cmd_list()
     register_cmd("RMD", RMD, rmd_handler);
     register_cmd("RNFR", RNFR, rnfr_handler);
     register_cmd("RNTO", RNTO, rnto_handler_refuse);
-//    set_cmd_status(USER, CMD_ENABLE);
-//    set_cmd_status(LIST, CMD_ENABLE);
-//    set_cmd_status(SYST, CMD_ENABLE);
-//    set_cmd_status(TYPE, CMD_ENABLE);
+    register_cmd("REST", REST, rest_handler);
 }
 
 void _init_handler()
@@ -125,7 +122,7 @@ int readMsg(int* fd, ConnectArg* args, char* buffer, int bufferLen)
         *fd = *fd > 0 ? -(*fd) : *fd;
         close(-(*fd));
         *fd = -1;
-        return -1;
+        return 0;
     }
     //socket接收到的字符串并不会添加'\0'
     if((*fd) == args->connfd)
@@ -145,7 +142,9 @@ int readMsg(int* fd, ConnectArg* args, char* buffer, int bufferLen)
     }
     else
     {
-        printf("%d recv%8x Bytes\n", *fd, len);
+//        printf("%d recv%8x Bytes\n", *fd, len);
+        buffer[len + 1] = '\0';
+        printf("%d recv%8x %s\n", *fd, len, buffer);
     }
 //  handle exit _temp.
 //    if(len == 1 && buffer[0] == 'Q')
@@ -221,7 +220,8 @@ int aserver(ConnectArg* args)
     args->writebuffer = malloc(BUFFSIZE * sizeof(char));
     args->dir = malloc(DIRSIZE * sizeof(char));
     strcpy(args->dir, "");
-    set_cmd_status(args, USER, CMD_ENABLE);
+    set_cmd_status_all(args, CMD_ENABLE);
+//    set_cmd_status(args, USER, CMD_ENABLE);
     //------------------------------------
 //    set_cmd_status(args, PASV, CMD_ENABLE);
 //    set_cmd_status(args, PORT, CMD_ENABLE);
@@ -292,11 +292,12 @@ int main(int argc, char **argv) {
     if(dirID > 0)
         strcpy(SERVERDIR, argv[dirID]);
     else
-        strcpy(SERVERDIR, "/tmp");
+//        strcpy(SERVERDIR, "/tmp");
+        strcpy(SERVERDIR, "/home/shadowiterator/2018FTP/For_Student/ftp_dev/server");
     if(portID > 0)
         SERVERPORT = atoi(argv[portID]);
     else
-        SERVERPORT = 21;
+        SERVERPORT = 8765;//21;
 
     int listenfd, connfd;		//监听socket和连接socket不一样，后者用于数据传输
     struct sockaddr_in addr;
