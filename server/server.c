@@ -45,6 +45,7 @@ void _init_cmd_list()
     register_cmd("RNFR", RNFR, rnfr_handler);
     register_cmd("RNTO", RNTO, rnto_handler_refuse);
     register_cmd("REST", REST, rest_handler);
+    register_cmd("APPE", APPE, appe_handler);
 }
 
 void _init_handler()

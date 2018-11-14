@@ -775,10 +775,42 @@ int stor_handler(ConnectArg* args, char* cmd, int cmdn)
         return 0;
     }
     pthread_detach(pid);
+    return 0;
+}
 
+int appe_handler(ConnectArg* args, char* cmd, int cmdn)
+{
 
+    decodePathName(cmd, cmdn);
+    sendFmtMsg(&args->connfd, args, "get APPE request", 0, 150);
+    if(countParam(cmd) != 1)
+    {
+        sendFmtMsg(&args->connfd, args, "a parameter expected", 0, 550);
+        return 0;
+    }
+    if(args->datafd < 0)
+    {
+        sendFmtMsg(&args->connfd, args, "no connection established", 0, 425);
+        return 0;
+    }
+    int p = getParam(cmd, 1);
+    char path[1040];
 
+    getFullPathName(args, &cmd[p], path);
+    printf("stor : %s\n", path);
 
+    FileArgs* cargs = malloc(sizeof(FileArgs));
+    cargs->filefd = open(path, O_WRONLY | O_CREAT | O_APPEND);
+    cargs->cargs = args;
+
+    pthread_t pid;
+    int pret = pthread_create(&pid, NULL, (void*)recv_file, (void*)cargs);
+    if(pret)
+    {
+        sendFmtMsg(&args->connfd, args, "create thread failed", 0, 530);
+        return 0;
+    }
+    pthread_detach(pid);
     return 0;
 }
 

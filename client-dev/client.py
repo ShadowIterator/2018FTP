@@ -35,7 +35,7 @@ class RecvThread(threading.Thread):
             try:
                 data = self.dic['sock'].recv(size)
             except:
-                print('socket disconnected')
+                print('recv_thread: socket disconnected')
                 return
             data = data.decode()
             paramL = data.split(' ')
@@ -141,6 +141,7 @@ class DataThread(threading.Thread):
             except:
                 pass
 
+
 class SendThread(threading.Thread):
     def __init__(self, threadID, name, dic):
         threading.Thread.__init__(self)
@@ -199,6 +200,11 @@ class SendThread(threading.Thread):
                 self.dic['sock'].send((msg + '\n').encode())
                 tsfile = SendFileThread(4, 'sFile', self.dic, filename)
                 tsfile.start()
+            elif(paramL[0] == 'APPE'):
+                filename = input('specify upload file name:')
+                self.dic['sock'].send((msg + '\n').encode())
+                tsfile = SendFileThread(4, 'sFile', self.dic, filename)
+                tsfile.start()
             elif(paramL[0] == 'RETR'):
                 # self.dic['recvcode'] = -1
                 self.dic['sock'].send((msg + '\n').encode())
@@ -227,36 +233,207 @@ class SendThread(threading.Thread):
     #         self.dic[name].close()
     #         self.dic[name] = None
 
-try:
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--address', '-a', required = True, type = str, dest = 'addr')
-    parser.add_argument('--port', '-p', required = True, type = int, dest = 'port')
-    args = parser.parse_args()
 
-    print((args.addr, args.port))
+class SIFtp:
+    def __init__(self):
 
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    #sock.connect(('ftp.dlptest.com', 21))
-    #sock.connect(('localhost', 21))
-    # sock.connect(('47.95.120.180', 21))
-    sock.connect((args.addr, args.port))
-    dic = {}
-    dic['sock'] = sock
-    dic['datasock'] = None
-    dic['listensock'] = None
-    dic['recvcode'] = -1
-    trecv = RecvThread(0, 'recv', dic)
-    tsend = SendThread(1, 'send', dic)
-    # tdata = DataThread(2, 'data', dic)
-    tsend.start()
-    trecv.start()
-    # tdata.start()
+        self.dic = {
+            'sock': None,
+            'datasock': None,
+            'listensock': None,
+            'remotesock': None,
+            'recvcode': -1
+        }
+        self.mode = 'console'
 
-    tsend.join()
-    trecv.join()
+    def connect(self, addr, port):
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.connect((addr, port))
+        self.dic['sock'] = sock
+        print('ftp: connection established')
 
-    print('socket close')
-        # sock.close()
- 
-except:
-    print("cannot reach the server")
+    def listen_raw(self):
+        # trecv = RecvThread(0, 'recv', self.dic)
+        tsend = SendThread(1, 'send', self.dic)
+        tsend.start()
+        # trecv.start()
+
+        tsend.join()
+        # trecv.join()
+
+    def show_response(self):
+        trecv = RecvThread(0, 'recv', self.dic)
+        trecv.start()
+        # trecv.join()
+
+    def sendMsg(self, msg):
+        self.dic['sock'].send((msg + '\n').encode())
+
+    def login(self, usr, pwd):
+        self.sendMsg('USER ' + usr)
+        self.sendMsg('PASS ' + pwd)
+
+    def pwd(self):
+        self.sendMsg('PWD')
+
+    def request_data_connection(self):
+        try_close_sock(self.dic, 'datasock')
+        try_close_sock(self.dic, 'listensock')
+        self.sendMsg('PASV')
+        # time.sleep(0.1)
+        while(not self.dic['datasock']):
+            time.sleep(0.1)
+
+
+    def cd(self, dir):
+        self.sendMsg('CWD ' + dir)
+
+    def upload(self, spath, filename, sp):
+        self.set_type('I')
+        self.request_data_connection()
+        # filename = input('specify upload file name:')
+        # self.dic['sock'].send((msg + '\n').encode())
+        self.sendMsg('STOR ' + spath)
+        tsfile = SendFileThread(4, 'sFile', self.dic, filename)
+        tsfile.start()
+
+    def set_type(self, tp):
+        self.sendMsg('TYPE ' + tp)
+
+    def upload_append(self, spath, filename, sp):
+        self.set_type('I')
+        self.request_data_connection()
+        # filename = input('specify upload file name:')
+        # self.dic['sock'].send((msg + '\n').encode())
+        self.sendMsg('APPE ' + spath)
+        tsfile = SendFileThread(4, 'sFile', self.dic, filename)
+        tsfile.start()
+
+    def download(self, spath, filename, sp):
+        self.set_type('I')
+        self.request_data_connection()
+        # self.dic['sock'].send((msg + '\n').encode())
+        # filename = input('specify upload file name:')
+        self.sendMsg('REST ' + sp)
+        self.sendMsg('RETR ' + spath)
+        trfile = RecvFileThread(3, 'rFile', self.dic, filename)
+        trfile.start()
+
+    def list_dir(self, spath = ''):
+        # self.dic['sock'].send((msg + '\n').encode())
+        self.request_data_connection()
+        self.sendMsg('LIST ' + spath)
+        try:
+            # print("geting list data")
+            # while (True):
+            #     data = self.dic['datasock'].recv(200086)
+            #     if not data:
+            #         break
+            #     data = data.decode()
+            #     if (len(data) > 0):
+            #         print(data)
+            data = b''
+            fdata = self.dic['datasock'].recv(5)
+            while (len(fdata) > 0):
+                # print('fdata = ', fdata)
+                data = data + fdata
+                fdata = self.dic['datasock'].recv(5)
+            pass
+        except:
+            print("list: data connect not established")
+        print(data.decode())
+        if(self.mode == 'remote'):
+            self.dic['remotesock'].send(data)
+        try_close_sock(self.dic, 'datasock')
+        try_close_sock(self.dic, 'listensock')
+
+    def quit(self):
+        self.sendMsg('QUIT')
+        try_close_sock(self.dic, 'datasock')
+        try_close_sock(self.dic, 'listensock')
+        try_close_sock(self.dic, 'sock')
+
+    def depatch(self, cmd):
+        params = cmd.split(' ')
+        func = getattr(self, params[0], None)
+        if(not callable(func)):
+            print('invalid method')
+            return
+        func(*params[1:])
+
+    def listen_cmd(self):
+        while(self.dic['sock'] != None):
+            cmd = input()
+            self.depatch(cmd)
+        # self.quit()
+
+    def listen_remote(self, listen_port):
+        print('waiting for remote connection...')
+        rmt_listensock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        rmt_listensock.bind(('localhost', listen_port))
+        rmt_listensock.listen(1)
+        connection, address = rmt_listensock.accept()
+        self.dic['remotesock'] = connection
+        print('remote: connection established')
+        try:
+            # while(True):
+            #     cmd = connection.recv(10086).decode()
+            #     print('remote_recv: ' + cmd)
+            #     if(cmd.decode() == 'disconnect'):
+            #         connection.close()
+            #         rmt_listensock.close()
+            #         break
+            #     else:
+            #         self.depatch(cmd)
+            pass
+        except:
+            print('abnormal disconnect')
+        while(True):
+            cmd = connection.recv(10086).decode()
+            print('remote_recv: ' + cmd)
+            if(cmd == 'disconnect'):
+                connection.close()
+                rmt_listensock.close()
+                break
+            elif(cmd == 'getdata'):
+                connection.send(self.last_data)
+            else:
+                self.depatch(cmd)
+        # self.quit()
+
+
+    def run(self, mode, listen_port = 2324):
+        self.mode = mode
+        ftp.show_response()
+        if(mode == 'console'):
+            self.listen_cmd()
+        elif(mode == 'raw'):
+            self.listen_raw()
+        elif(mode == 'remote'):
+            self.listen_remote(listen_port)
+        else:
+            print('invalid mode')
+
+
+# try:
+parser = argparse.ArgumentParser()
+parser.add_argument('--address', '-a', required = True, type = str, dest = 'addr')
+parser.add_argument('--port', '-p', required = True, type = int, dest = 'port')
+parser.add_argument('--mode', '-m', required = True, type = str, dest = 'mode')
+parser.add_argument('--listen_port', '-lp', required = False, type = int, dest = 'listen_port')
+args = parser.parse_args()
+
+print((args.addr, args.port))
+
+ftp = SIFtp()
+# ftp.connect(args.addr, args.port)
+# ftp.run_raw()
+# ftp.show_response()
+# ftp.listen_cmd()
+# if(args.mode != 'remote'):
+ftp.connect(args.addr, args.port)
+ftp.run(args.mode, args.listen_port)
+print('socket close')
+#
+# except:
+#     print("cannot reach the server")
