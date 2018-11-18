@@ -8,7 +8,7 @@ fpid = 3
 size = 200086
 fexit = False
 ipre = re.compile(r'\d+,\d+,\d+,\d+,\d+,\d+')
-
+idir = re.compile(r'\".*\"')
 
 def try_close_sock(dic, name):
     if (dic[name] != None):
@@ -37,6 +37,8 @@ class RecvThread(threading.Thread):
             except:
                 print('recv_thread: socket disconnected')
                 return
+            if(self.dic['remotesock'] != None):
+                self.dic['remotesock'].send(b'console$'+data)
             data = data.decode()
             paramL = data.split(' ')
             code = -1
@@ -44,7 +46,7 @@ class RecvThread(threading.Thread):
                 code = int(data[0:3])
                 self.dic['recvcode'] = code
                 print(self.name + " : " + data)
-            if(code == 227):
+            if('227' in data):
                 s, e = ipre.search(data).span()
                 print(s, e)
                 print(data[s: e])
@@ -62,19 +64,28 @@ class RecvThread(threading.Thread):
                     print('datasock bind')
                 except:
                     print('unable to connect server')
+            if('257' in data):
+                s, e = idir.search(data).span()
+                # print('dir: ', s, e, data[s: e])
+                try:
+                    self.dic['remotesock'].send(b'path$'+data[s: e].encode())
+                except:
+                    print('can not reach remote gui')
 
 class SendFileThread(threading.Thread):
-    def __init__(self, threadID, name, dic, filename):
+    def __init__(self, threadID, name, dic, filename, sp):
         threading.Thread.__init__(self)
         self.threadID = threadID
         self.name = name
         self.dic = dic
         self.filename = filename
+        self.sp = sp
 
     def run(self):
         filename = self.filename
         try:
             f = open(filename, 'rb')
+            f.seek(self.sp)
             fdata = f.read(5)
             while(len(fdata) > 0):
                 self.dic['datasock'].send(fdata)
@@ -93,17 +104,21 @@ class SendFileThread(threading.Thread):
 
 
 class RecvFileThread(threading.Thread):
-    def __init__(self, threadID, name, dic, filename):
+    def __init__(self, threadID, name, dic, filename, method):
         threading.Thread.__init__(self)
         self.threadID = threadID
         self.name = name
         self.dic = dic
         self.filename = filename
+        self.method = method
 
     def run(self):
         filename = self.filename
         try:
-            f = open(filename, 'wb')
+            if(self.method == 'append'):
+                f = open(filename, 'ab')
+            else:
+                f = open(filename, 'wb')
         except:
             print('RETR: open file failed')
 
@@ -209,7 +224,7 @@ class SendThread(threading.Thread):
                 # self.dic['recvcode'] = -1
                 self.dic['sock'].send((msg + '\n').encode())
                 filename = input('specify upload file name:')
-                trfile = RecvFileThread(3, 'rFile', self.dic, filename)
+                trfile = RecvFileThread(3, 'rFile', self.dic, filename, 'append')
                 trfile.start()
             elif(paramL[0] == 'QUIT'):
                 self.dic['sock'].send((msg + '\n').encode())
@@ -245,6 +260,9 @@ class SIFtp:
             'recvcode': -1
         }
         self.mode = 'console'
+
+    def mkd(self, dirPath):
+        self.sendMsg('MKD ' + dirPath)
 
     def connect(self, addr, port):
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -288,13 +306,13 @@ class SIFtp:
     def cd(self, dir):
         self.sendMsg('CWD ' + dir)
 
-    def upload(self, spath, filename, sp):
+    def upload(self, spath, filename):
         self.set_type('I')
         self.request_data_connection()
         # filename = input('specify upload file name:')
         # self.dic['sock'].send((msg + '\n').encode())
         self.sendMsg('STOR ' + spath)
-        tsfile = SendFileThread(4, 'sFile', self.dic, filename)
+        tsfile = SendFileThread(4, 'sFile', self.dic, filename, 0)
         tsfile.start()
 
     def set_type(self, tp):
@@ -306,7 +324,7 @@ class SIFtp:
         # filename = input('specify upload file name:')
         # self.dic['sock'].send((msg + '\n').encode())
         self.sendMsg('APPE ' + spath)
-        tsfile = SendFileThread(4, 'sFile', self.dic, filename)
+        tsfile = SendFileThread(4, 'sFile', self.dic, filename, int(sp))
         tsfile.start()
 
     def download(self, spath, filename, sp):
@@ -316,7 +334,18 @@ class SIFtp:
         # filename = input('specify upload file name:')
         self.sendMsg('REST ' + sp)
         self.sendMsg('RETR ' + spath)
-        trfile = RecvFileThread(3, 'rFile', self.dic, filename)
+        trfile = RecvFileThread(3, 'rFile', self.dic, filename, 'rewrite')
+        trfile.start()
+
+    def download_append(self, spath, filename, sp):
+        self.set_type('I')
+        self.request_data_connection()
+        # self.dic['sock'].send((msg + '\n').encode())
+        # filename = input('specify upload file name:')
+
+        self.sendMsg('REST ' + sp)
+        self.sendMsg('RETR ' + spath)
+        trfile = RecvFileThread(3, 'rFile', self.dic, filename, 'append')
         trfile.start()
 
     def list_dir(self, spath = ''):
@@ -343,7 +372,7 @@ class SIFtp:
             print("list: data connect not established")
         print(data.decode())
         if(self.mode == 'remote'):
-            self.dic['remotesock'].send(data)
+            self.dic['remotesock'].send(b'dir$'+data)
         try_close_sock(self.dic, 'datasock')
         try_close_sock(self.dic, 'listensock')
 
@@ -365,6 +394,9 @@ class SIFtp:
         while(self.dic['sock'] != None):
             cmd = input()
             self.depatch(cmd)
+
+    def close_data_connection(self):
+        try_close_sock(self.dic, 'datasock')
         # self.quit()
 
     def listen_remote(self, listen_port):
@@ -389,14 +421,22 @@ class SIFtp:
         except:
             print('abnormal disconnect')
         while(True):
-            cmd = connection.recv(10086).decode()
-            print('remote_recv: ' + cmd)
+            cmd = connection.recv(10086)
+
+            print(b'remote_recv: ' + cmd)
+            cmd = cmd.decode()
+            cmd = cmd.strip('\r\n')
             if(cmd == 'disconnect'):
-                connection.close()
-                rmt_listensock.close()
-                break
+                connection.send(b'$stoplisten$')
+                while(True):
+                    pass
+                # connection.close()
+                # rmt_listensock.close()
+                # break
             elif(cmd == 'getdata'):
                 connection.send(self.last_data)
+            elif(cmd == 'closeconfirm'):
+                connection.send(b'$closeGUI$')
             else:
                 self.depatch(cmd)
         # self.quit()
@@ -437,3 +477,7 @@ print('socket close')
 #
 # except:
 #     print("cannot reach the server")
+
+
+# python3 .\client.py -a ftp.dlptest.com -p 21
+# login dlpuser@dlptest.com e73jzTRTNqCN9PYAAjjn

@@ -8,4 +8,6 @@ TEST/
 *.data
 autograde.py
 *.txt
+*.in
+*.out
 */venv/
