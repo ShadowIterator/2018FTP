@@ -41,9 +41,9 @@ class RecvThread(threading.Thread):
             paramL = data.split(' ')
             code = -1
             if(len(data) > 0):
-                code = int(data[0:3])
-                self.dic['recvcode'] = code
                 print(self.name + " : " + data)
+                # code = int(data[0:3])
+                # self.dic['recvcode'] = code
             if(code == 227):
                 s, e = ipre.search(data).span()
                 print(s, e)
