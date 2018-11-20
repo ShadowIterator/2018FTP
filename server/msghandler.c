@@ -220,15 +220,15 @@ void wait_for_connection(ConnectArg* args)
 
 int send_file(FileArgs* cargs)
 {
-#define RETRFBUFFSIZE 5
+#define RETRFBUFFSIZE 1024
     int fd = cargs->filefd;
     ConnectArg* args = cargs->cargs;
     char *fbuffer = malloc(RETRFBUFFSIZE * sizeof(char));
     int filelen;
-    int msgRet;
+    int msgRet = 1;
     while((filelen = read(fd, fbuffer, RETRFBUFFSIZE)))
     {
-        usleep(500000);
+        usleep(100000);
 //        sleep(1);
         if(filelen < 0)
         {
@@ -246,7 +246,7 @@ int send_file(FileArgs* cargs)
         }
     }
 
-//    sendFmtMsg(&args->connfd, args, "transform success", 0, 226);
+    sendFmtMsg(&args->connfd, args, "transfer success", 0, 226);
 
     send_file_end:
     cargs->cargs->sp = 0;
@@ -270,13 +270,13 @@ int send_file(FileArgs* cargs)
 
 int recv_file(FileArgs* cargs)
 {
-#define STORFBUFFSIZE 5
+#define STORFBUFFSIZE 1024
     char* buffer = malloc(STORFBUFFSIZE * sizeof(char));
 
     int fd = cargs->filefd;
     ConnectArg* args = cargs->cargs;
     int flen = 0;
-    while(flen = readMsg(&args->datafd, args, buffer, STORFBUFFSIZE))
+    while((flen = readMsg(&args->datafd, args, buffer, STORFBUFFSIZE)))
     {
         if(flen < 0)
         {
@@ -307,6 +307,7 @@ int recv_file(FileArgs* cargs)
         puts("close listen");
         args->psvlistenfd = -1;
     }
+    return 0;
 }
 
 int user_handler(ConnectArg* args, char* cmd, int cmdn)
@@ -401,21 +402,41 @@ int list_handler(ConnectArg* args, char* cmd, int cmdn)
 //        sendFmtMsg(&args->connfd, args, " too many args", 0, 530);
 //        return 0;
 //    }
-    DIR *dir;
-    struct dirent *ptr;
-    struct stat finfo;
-    char path[1024];
-    char msg[1024];
-    dir = opendir(dpath);
-    ptr = readdir(dir);
-    while(ptr)
+    char si_cmd[2048];
+//    sprintf(si_cmd, "cd %s", dpath);
+//    system(si_cmd);
+    sprintf(si_cmd, "ls -a -l %s", dpath);
+    FILE *fpread = popen(si_cmd, "r");
+    char res[2048];
+    int si_len;
+//    char tt = fgetc(fpread);
+//    fscanf(fpread, "%[^\n]%c", res);
+    while(fgetc(fpread) != '\n');
+//        tt = fgetc(fpread);
+    while((si_len = fread(res, 1, 2047, fpread))>0)
     {
-        sprintf(path, "%s%s", dpath, ptr->d_name);
-        stat(path, &finfo);
-        sprintf(msg, " %s %d", ptr->d_name, S_ISDIR(finfo.st_mode));
-        sendFmtMsg(&args->datafd, args, msg, 0, 230);
-        ptr = readdir(dir);
+        res[si_len] = '\0';
+        printf("%s", res);
+        if(sendMsg(&args->datafd, args, res, si_len) < 0)
+            break;
+        printf("%s", res);
     }
+//
+//    DIR *dir;
+//    struct dirent *ptr;
+//    struct stat finfo;
+//    char path[1024];
+//    char msg[1024];
+//    dir = opendir(dpath);
+//    ptr = readdir(dir);
+//    while(ptr)
+//    {
+//        sprintf(path, "%s%s", dpath, ptr->d_name);
+//        stat(path, &finfo);
+//        sprintf(msg, " %s %d", ptr->d_name, S_ISDIR(finfo.st_mode));
+//        sendFmtMsg(&args->datafd, args, msg, 0, 230);
+//        ptr = readdir(dir);
+//    }
 
     if(args->datafd != -1)
     {
@@ -447,10 +468,10 @@ int type_handler(ConnectArg* args, char* cmd, int cmdn)
         return 0;
     }
     int p;
-    int len;
+//    int len;
     p = getParam(cmd, 1);
-    len = cmdn - p;
-    if(sistrcmp("I", cmd, 0, p, MAX(len, 1)) != 0)
+//    len = cmdn - p;
+    if(sistrcmp("I", cmd, 0, p, 1) != 0)
     {
         sendFmtMsg(&args->connfd, args, "expected I as parameter", 0, 530);
         return 0;
@@ -670,7 +691,7 @@ int retr_handler(ConnectArg* args, char* cmd, int cmdn)
 //    decodePathName(&cmd[p], len);
 //    sprintf(path, "%s%s%s", SERVERDIR, args->dir, &cmd[p]);
     getFullPathName(args, &cmd[p], path);
-    printf("trying to open %s\n", path);
+    printf("trying to open %s with sp = %d\n", path, args->sp);
 
 
 

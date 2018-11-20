@@ -2,7 +2,7 @@
 #include "sistring.h"
 #include "msghandler.h"
 #include "server.h"
-
+#include "signal.h"
 
 
 
@@ -96,6 +96,7 @@ int readMsg(int* fd, ConnectArg* args, char* buffer, int bufferLen)
 {
 //    char* buffer = args->buffer;
 //    int connfd = args->connfd;
+    if(fd < 0) return -1;
     int len = 0;
     int p;
         //榨干socket传来的内容
@@ -143,9 +144,9 @@ int readMsg(int* fd, ConnectArg* args, char* buffer, int bufferLen)
     }
     else
     {
-//        printf("%d recv%8x Bytes\n", *fd, len);
-        buffer[len + 1] = '\0';
-        printf("%d recv%8x %s\n", *fd, len, buffer);
+        printf("%d recv%8x Bytes\n", *fd, len);
+//        buffer[len + 1] = '\0';
+//        printf("%d recv%8x %s\n", *fd, len, buffer);
     }
 //  handle exit _temp.
 //    if(len == 1 && buffer[0] == 'Q')
@@ -158,6 +159,7 @@ int readMsg(int* fd, ConnectArg* args, char* buffer, int bufferLen)
 
 int sendMsg(int* fd, ConnectArg* args, char* buffer, int len) {
 //    char* wbuf[BUFFSIZE];
+    if(fd < 0) return -1;
     if (!len)
         len = strlen(buffer);
 //    int connfd = args->connfd;
@@ -279,6 +281,7 @@ int getConsoleParam(char* cmd, int argc, char** argv)
 
 int main(int argc, char **argv) {
 
+    signal(SIGPIPE, SIG_IGN);
     //----------test reduce path--------------------
 //    char* tpath = "/hello/xie/die/../d";
 //    char tpath[1000];
@@ -299,6 +302,8 @@ int main(int argc, char **argv) {
         SERVERPORT = atoi(argv[portID]);
     else
         SERVERPORT = 8765;//21;
+
+    printf("working on %d, %s\n", SERVERPORT, SERVERDIR);
 
     int listenfd, connfd;		//监听socket和连接socket不一样，后者用于数据传输
     struct sockaddr_in addr;
