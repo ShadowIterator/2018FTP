@@ -416,10 +416,10 @@ int list_handler(ConnectArg* args, char* cmd, int cmdn)
     while((si_len = fread(res, 1, 2047, fpread))>0)
     {
         res[si_len] = '\0';
-        printf("%s", res);
+//        printf("%s", res);
         if(sendMsg(&args->datafd, args, res, si_len) < 0)
             break;
-        printf("%s", res);
+//        printf("%s", res);
     }
 //
 //    DIR *dir;
@@ -751,7 +751,7 @@ int pwd_handler(ConnectArg* args, char* cmd, int cmdn)
 {
     char msg[1040];
     sprintf(msg, "\"%s\"", args->dir);
-    sendFmtMsg(&args->connfd, args, msg, 0, 550);
+    sendFmtMsg(&args->connfd, args, msg, 0, 257);
     return 0;
 }
 

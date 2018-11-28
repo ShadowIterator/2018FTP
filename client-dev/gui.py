@@ -199,20 +199,20 @@ class Example(QWidget):
         self.transInfoEdit = QLineEdit()
         self.consoleInfoEdit = QTextEdit()
 
-        self.hostLineEdit = QLineEdit('166.111.80.237')
-        self.portLineEdit = QLineEdit('8279')
-        self.userLineEdit = QLineEdit('cn2018')
-        self.passLineEdit = QLineEdit('ftp')
+        # self.hostLineEdit = QLineEdit('166.111.80.237')
+        # self.portLineEdit = QLineEdit('8279')
+        # self.userLineEdit = QLineEdit('cn2018')
+        # self.passLineEdit = QLineEdit('ftp')
 
         # self.hostLineEdit = QLineEdit('ftp.dlptest.com')
         # self.portLineEdit = QLineEdit('21')
         # self.userLineEdit = QLineEdit('dlpuser@dlptest.com')
         # self.passLineEdit = QLineEdit('e73jzTRTNqCN9PYAAjjn')
 
-        # self.hostLineEdit = QLineEdit('123.207.157.213')
-        # self.portLineEdit = QLineEdit('8766')
-        # self.userLineEdit = QLineEdit('anonymous')
-        # self.passLineEdit = QLineEdit('e73jzTRT')
+        self.hostLineEdit = QLineEdit('localhost')
+        self.portLineEdit = QLineEdit('21')
+        self.userLineEdit = QLineEdit('anonymous')
+        self.passLineEdit = QLineEdit('e73jzTRT')
 
 
         self.hostLable = QLabel('address:')

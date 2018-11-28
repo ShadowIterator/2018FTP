@@ -140,11 +140,11 @@ int readMsg(int* fd, ConnectArg* args, char* buffer, int bufferLen)
     // print debug info
     if((*fd) == args->connfd)
     {
-        printf("%d recv%8x %s\n", *fd, len, buffer);
+//        printf("%d recv%8x %s\n", *fd, len, buffer);
     }
     else
     {
-        printf("%d recv%8x Bytes\n", *fd, len);
+//        printf("%d recv%8x Bytes\n", *fd, len);
 //        buffer[len + 1] = '\0';
 //        printf("%d recv%8x %s\n", *fd, len, buffer);
     }
@@ -180,14 +180,14 @@ int sendMsg(int* fd, ConnectArg* args, char* buffer, int len) {
     }
     if ((*fd) == args->connfd)
     {
-        printf("%d send%8x ", *fd, len);
-            for (int i = 0; i < len; ++i)
-                putchar(buffer[i]);
-        putchar('\n');
+//        printf("%d send%8x ", *fd, len);
+//            for (int i = 0; i < len; ++i)
+//                putchar(buffer[i]);
+//        putchar('\n');
     }
     else
     {
-        printf("%d send%8x Bytes\n", *fd, len);
+//        printf("%d send%8x Bytes\n", *fd, len);
     }
 
     return 0;
@@ -296,12 +296,12 @@ int main(int argc, char **argv) {
     if(dirID > 0)
         strcpy(SERVERDIR, argv[dirID]);
     else
-//        strcpy(SERVERDIR, "/tmp");
-        strcpy(SERVERDIR, "/home/shadowiterator/2018FTP/For_Student/ftp_dev/server");
+        strcpy(SERVERDIR, "/tmp");
+//        strcpy(SERVERDIR, "/home/shadowiterator/2018FTP/For_Student/ftp_dev/server");
     if(portID > 0)
         SERVERPORT = atoi(argv[portID]);
     else
-        SERVERPORT = 8765;//21;
+        SERVERPORT = 21;
 
     printf("working on %d, %s\n", SERVERPORT, SERVERDIR);
 

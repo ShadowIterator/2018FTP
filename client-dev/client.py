@@ -339,7 +339,7 @@ class SIFtp:
         tsfile = SendFileThread(4, 'sFile', self.dic, filename, int(sp))
         tsfile.start()
 
-    def download(self, spath, filename, sp):
+    def download(self, spath, filename, sp = 0):
         self.set_type('I')
         self.request_data_connection()
         # self.dic['sock'].send((msg + '\n').encode())
